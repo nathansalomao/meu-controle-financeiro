@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Meu Controle Financeiro</title>
+<style>
+:root{--bg:#f5f7fb;--card:#fff;--text:#172033;--muted:#718096;--primary:#2563eb;--green:#16a34a;--red:#dc2626;--orange:#ea580c;--border:#e5e7eb;--shadow:0 8px 30px rgba(15,23,42,.07)}
+*{box-sizing:border-box}body{margin:0;font-family:Inter,system-ui,-apple-system,Segoe UI,sans-serif;background:var(--bg);color:var(--text)}
+header{background:#111827;color:#fff;padding:18px 24px;position:sticky;top:0;z-index:10}.head{max-width:1200px;margin:auto;display:flex;justify-content:space-between;align-items:center;gap:15px}.brand{font-size:21px;font-weight:800}.brand span{color:#60a5fa}
+.container{max-width:1200px;margin:24px auto;padding:0 16px}.tabs{display:flex;gap:8px;overflow:auto;margin-bottom:20px}.tab{border:1px solid var(--border);background:#fff;padding:10px 16px;border-radius:10px;cursor:pointer;font-weight:700;white-space:nowrap}.tab.active{background:var(--primary);color:#fff;border-color:var(--primary)}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:15px}.card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:18px;box-shadow:var(--shadow)}.label{font-size:13px;color:var(--muted)}.value{font-size:27px;font-weight:800;margin-top:5px}.green{color:var(--green)}.red{color:var(--red)}.orange{color:var(--orange)}
+.section{margin-top:20px}.section-title{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}.section-title h2{margin:0;font-size:19px}
+button{border:0;border-radius:10px;padding:10px 14px;cursor:pointer;font-weight:700}.primary{background:var(--primary);color:#fff}.secondary{background:#eef2ff;color:#1d4ed8}.danger{background:#fee2e2;color:#991b1b}.ghost{background:#f3f4f6;color:#374151}
+.table-wrap{overflow:auto}.table{width:100%;border-collapse:collapse}.table th,.table td{text-align:left;padding:12px;border-bottom:1px solid var(--border);font-size:14px;white-space:nowrap}.table th{color:var(--muted);font-size:12px;text-transform:uppercase}.pill{display:inline-block;padding:5px 9px;border-radius:999px;font-size:12px;font-weight:800}.pill.in{background:#dcfce7;color:#166534}.pill.out{background:#fee2e2;color:#991b1b}.pill.pending{background:#ffedd5;color:#9a3412}.pill.paid{background:#dcfce7;color:#166534}
+.form{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.field{display:flex;flex-direction:column;gap:6px}.field label{font-size:12px;font-weight:700;color:#4b5563}.field input,.field select{padding:11px;border:1px solid #d1d5db;border-radius:10px;background:#fff;font:inherit}.full{grid-column:1/-1}.actions{display:flex;gap:8px;align-items:end}.actions button{height:42px}
+.modal{display:none;position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:20;padding:20px;overflow:auto}.modal.show{display:flex;align-items:center;justify-content:center}.modal-box{background:#fff;width:min(700px,100%);border-radius:18px;padding:20px}.modal-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:15px}.modal-head h2{margin:0}
+.calendar{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}.dow{font-size:12px;color:var(--muted);font-weight:800;padding:8px}.day{min-height:90px;background:#fff;border:1px solid var(--border);border-radius:10px;padding:7px}.day.muted{background:#f8fafc;color:#cbd5e1}.daynum{font-weight:800}.event{font-size:11px;margin-top:5px;padding:4px;border-radius:6px;background:#fee2e2;color:#991b1b;overflow:hidden;text-overflow:ellipsis}.income-event{background:#dcfce7;color:#166534}
+.monthbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}.monthbar h2{margin:0}.monthbar button{font-size:18px}
+.empty{text-align:center;color:var(--muted);padding:30px}.note{font-size:12px;color:var(--muted);margin-top:8px}
+@media(max-width:850px){.grid{grid-template-columns:repeat(2,1fr)}.form{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:560px){header{padding:14px}.container{margin:15px auto}.grid{grid-template-columns:1fr 1fr}.value{font-size:21px}.form{grid-template-columns:1fr}.day{min-height:72px}.event{font-size:9px}}
+</style>
+</head>
+<body>
+<header><div class="head"><div class="brand">Meu <span>Controle Financeiro</span></div><div id="today"></div></div></header>
+<div class="container">
+<div class="tabs">
+<button class="tab active" data-tab="dashboard">Dashboard</button>
+<button class="tab" data-tab="lancamentos">Entradas & Saídas</button>
+<button class="tab" data-tab="contas">Contas a pagar</button>
+<button class="tab" data-tab="calendario">Calendário</button>
+<button class="tab" data-tab="guardado">Dinheiro guardado</button>
+<button class="tab" data-tab="config">Dados</button>
+</div>
+
+<section id="dashboard">
+<div class="grid">
+<div class="card"><div class="label">Saldo atual</div><div class="value" id="saldo">€0,00</div></div>
+<div class="card"><div class="label">Entradas no mês</div><div class="value green" id="entradasMes">€0,00</div></div>
+<div class="card"><div class="label">Saídas no mês</div><div class="value red" id="saidasMes">€0,00</div></div>
+<div class="card"><div class="label">Contas pendentes</div><div class="value orange" id="pendentes">€0,00</div></div>
+<div class="card"><div class="label" id="semanaLabel">Pendente nesta semana</div><div class="value orange" id="pendentesSemana">€0,00</div></div>
+<div class="card"><div class="label" id="mesLabel">Pendente neste mês</div><div class="value orange" id="pendentesMes">€0,00</div></div>
+<div class="card"><div class="label">Dinheiro guardado</div><div class="value green" id="dinheiroGuardado">€0,00</div><button class="secondary" style="margin-top:10px" onclick="openSavings()">Editar</button></div>
+</div>
+<div class="section grid" style="grid-template-columns:1fr 1fr">
+<div class="card"><div class="section-title"><h2>Próximos vencimentos</h2><button class="secondary" onclick="openBill()">+ Conta</button></div><div id="proximas"></div></div>
+<div class="card"><div class="section-title"><h2>Últimos lançamentos</h2><button class="secondary" onclick="openTx()">+ Lançamento</button></div><div id="ultimos"></div></div>
+</div>
+</section>
+
+<section id="lancamentos" style="display:none">
+<div class="section-title"><h2>Entradas e saídas</h2><button class="primary" onclick="openTx()">+ Novo lançamento</button></div>
+<div class="card table-wrap"><table class="table"><thead><tr><th>Data</th><th>Descrição</th><th>Categoria</th><th>Tipo</th><th>Valor</th><th></th></tr></thead><tbody id="txTable"></tbody></table></div>
+</section>
+
+<section id="contas" style="display:none">
+<div class="section-title"><h2>Contas a pagar</h2><button class="primary" onclick="openBill()">+ Nova conta</button></div>
+<div class="card table-wrap"><table class="table"><thead><tr><th>Vencimento</th><th>Conta</th><th>Categoria</th><th>Valor</th><th>Status</th><th></th></tr></thead><tbody id="billTable"></tbody></table></div>
+</section>
+
+<section id="calendario" style="display:none">
+<div class="card"><div class="monthbar"><button class="ghost" onclick="changeMonth(-1)">‹</button><h2 id="monthTitle"></h2><button class="ghost" onclick="changeMonth(1)">›</button></div><div class="calendar" id="calendar"></div></div>
+</section>
+
+<section id="guardado" style="display:none">
+<div class="section-title"><h2>Dinheiro guardado</h2><button class="primary" onclick="openSavingEntry()">+ Separar dinheiro</button></div>
+<div class="grid">
+<div class="card"><div class="label">Total guardado</div><div class="value green" id="savedTotal">€0,00</div></div>
+<div class="card"><div class="label">Total separado este mês</div><div class="value green" id="savedMonth">€0,00</div></div>
+</div>
+<div class="card section table-wrap"><table class="table"><thead><tr><th>Data</th><th>Descrição</th><th>Valor</th><th></th></tr></thead><tbody id="savingTable"></tbody></table></div>
+</section>
+
+<section id="config" style="display:none">
+<div class="card">
+<h2>Dados do sistema</h2>
+<p>Os dados ficam salvos neste navegador. Faça um backup regularmente para não perder seus lançamentos.</p>
+<div style="display:flex;gap:10px;flex-wrap:wrap"><button class="primary" onclick="exportData()">Exportar backup</button><label class="secondary" style="padding:10px 14px;border-radius:10px;cursor:pointer">Importar backup<input type="file" id="importFile" accept=".json" hidden onchange="importData(event)"></label><button class="danger" onclick="clearData()">Apagar todos os dados</button></div>
+<p class="note">Moeda: Euro (€). Você pode alterar categorias e valores diretamente ao criar cada lançamento.</p>
+</div>
+</section>
+</div>
+
+<div class="modal" id="savingEntryModal"><div class="modal-box"><div class="modal-head"><h2>Separar dinheiro</h2><button class="ghost" onclick="closeModal('savingEntryModal')">✕</button></div>
+<div class="form"><div class="field"><label>Valor (€)</label><input id="savingEntryValue" type="number" min="0.01" step="0.01" placeholder="Ex.: 200"></div><div class="field"><label>Data</label><input id="savingEntryDate" type="date"></div><div class="field"><label>Descrição</label><input id="savingEntryDesc" placeholder="Ex.: Reserva do mês"></div><div class="actions"><button class="primary" onclick="saveSavingEntry()">Salvar</button></div></div></div></div>
+
+<div class="modal" id="savingsModal"><div class="modal-box"><div class="modal-head"><h2>Dinheiro guardado</h2><button class="ghost" onclick="closeModal('savingsModal')">✕</button></div>
+<div class="form"><div class="field"><label>Valor guardado (€)</label><input id="savingsValue" type="number" step="0.01" min="0" placeholder="Ex.: 2500"></div><div class="actions"><button class="primary" onclick="saveSavings()">Salvar</button></div></div>
+<p class="note">Este valor fica separado do saldo das entradas e saídas. Use para controlar sua reserva/poupança.</p></div></div>
+
+<div class="modal" id="txModal"><div class="modal-box"><div class="modal-head"><h2>Novo lançamento</h2><button class="ghost" onclick="closeModal('txModal')">✕</button></div>
+<div class="form"><div class="field"><label>Tipo</label><select id="txType"><option value="in">Entrada</option><option value="out">Saída</option></select></div><div class="field"><label>Descrição</label><input id="txDesc" placeholder="Ex.: Salário"></div><div class="field"><label>Categoria</label><input id="txCat" placeholder="Ex.: Trabalho"></div><div class="field"><label>Valor (€)</label><input id="txValue" type="number" step="0.01" min="0"></div><div class="field"><label>Data</label><input id="txDate" type="date"></div><div class="actions"><button class="primary" onclick="saveTx()">Salvar</button></div></div></div></div>
+
+<div class="modal" id="billModal"><div class="modal-box"><div class="modal-head"><h2 id="billModalTitle">Nova conta</h2><button class="ghost" onclick="closeModal('billModal')">✕</button></div>
+<input type="hidden" id="billEditId"><div class="form"><div class="field"><label>Conta</label><input id="billDesc" placeholder="Ex.: Aluguel"></div><div class="field"><label>Categoria</label><input id="billCat" placeholder="Ex.: Casa"></div><div class="field"><label>Valor (€)</label><input id="billValue" type="number" step="0.01" min="0"></div><div class="field"><label>Vencimento</label><input id="billDate" type="date"></div><div class="field"><label>Recorrência</label><select id="billRecurring" onchange="updateRecurrenceFields()"><option value="none">Não repetir</option><option value="weekly">Semanal</option><option value="monthly">Mensal</option><option value="yearly">Anual</option></select></div>
+<div class="field" id="billDurationField" style="display:none"><label>Tipo de término</label><select id="billDuration" onchange="updateRecurrenceFields()"><option value="fixed">Número de parcelas</option><option value="forever">Conta fixa / indefinida</option></select></div>
+<div class="field" id="billInstallmentsField" style="display:none"><label>Quantidade de parcelas</label><input id="billInstallments" type="number" min="1" step="1" placeholder="Ex.: 12"></div><div class="actions"><button class="primary" onclick="saveBill()">Salvar</button></div></div></div></div>
+
+<script>
+const KEY='financeiro_v1';
+let data=JSON.parse(localStorage.getItem(KEY)||'{"tx":[],"bills":[],"savings":0,"savingEntries":[]}');
+if(typeof data.savings!=='number') data.savings=0;
+if(!Array.isArray(data.savingEntries)) data.savingEntries=[];
+let calDate=new Date();
+const money=v=>new Intl.NumberFormat('pt-PT',{style:'currency',currency:'EUR'}).format(Number(v)||0);
+const fmtDate=s=>s?new Date(s+'T12:00:00').toLocaleDateString('pt-PT'):''; 
+const save=()=>localStorage.setItem(KEY,JSON.stringify(data));
+const todayISO=()=>new Date().toISOString().slice(0,10);
+document.getElementById('today').textContent=new Date().toLocaleDateString('pt-PT',{day:'2-digit',month:'2-digit',year:'numeric'});
+
+document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));b.classList.add('active');document.querySelectorAll('section').forEach(s=>s.style.display='none');document.getElementById(b.dataset.tab).style.display='block';render();});
+
+function openSavingEntry(){
+document.getElementById('savingEntryValue').value='';
+document.getElementById('savingEntryDate').value=todayISO();
+document.getElementById('savingEntryDesc').value='';
+document.getElementById('savingEntryModal').classList.add('show');
+}
+function saveSavingEntry(){
+let v=+document.getElementById('savingEntryValue').value;
+let date=document.getElementById('savingEntryDate').value;
+let desc=document.getElementById('savingEntryDesc').value||'Dinheiro guardado';
+if(!v||v<=0||!date)return alert('Informe valor e data.');
+data.savings=(data.savings||0)+v;
+data.savingEntries.push({id:Date.now(),value:v,date,desc});
+save();
+document.getElementById('savingEntryModal').classList.remove('show');
+render();
+}
+function delSavingEntry(id){
+let e=data.savingEntries.find(x=>x.id===id);
+if(!e)return;
+if(confirm('Apagar este registro e devolver o valor ao saldo guardado?')){
+data.savings=Math.max(0,(data.savings||0)-e.value);
+data.savingEntries=data.savingEntries.filter(x=>x.id!==id);
+save();render();
+}
+}
+function weekRange(){
+let now=new Date(), day=now.getDay();
+let monday=new Date(now); monday.setHours(0,0,0,0); monday.setDate(now.getDate()-(day===0?6:day-1));
+let sunday=new Date(monday); sunday.setDate(monday.getDate()+6);
+return [monday,sunday];
+}
+function dateShort(d){return d.toLocaleDateString('pt-PT',{day:'2-digit',month:'2-digit'});}
+function openSavings(){
+document.getElementById('savingsValue').value=data.savings||0;
+document.getElementById('savingsModal').classList.add('show');
+}
+function saveSavings(){
+let v=+document.getElementById('savingsValue').value;
+if(v<0 || isNaN(v)) return alert('Informe um valor válido.');
+data.savings=v;
+save();
+document.getElementById('savingsModal').classList.remove('show');
+render();
+}
+function openTx(){document.getElementById('txDate').value=todayISO();document.getElementById('txModal').classList.add('show')}
+function openBill(){document.getElementById('billDate').value=todayISO();document.getElementById('billModal').classList.add('show')}
+function closeModal(id){document.getElementById(id).classList.remove('show')}
+function saveTx(){let v=+txValue.value;if(!txDesc.value||!v||!txDate.value)return alert('Preencha descrição, valor e data.');data.tx.push({id:Date.now(),type:txType.value,desc:txDesc.value,cat:txCat.value||'Outros',value:v,date:txDate.value});save();document.getElementById('txModal').classList.remove('show');['txDesc','txCat','txValue'].forEach(id=>document.getElementById(id).value='');render()}
+function updateRecurrenceFields(){
+let recurring=document.getElementById('billRecurring').value;
+let show=recurring!=='none';
+document.getElementById('billDurationField').style.display=show?'flex':'none';
+let duration=document.getElementById('billDuration').value;
+document.getElementById('billInstallmentsField').style.display=(show&&duration==='fixed')?'flex':'none';
+}
+function addMonths(date, n){
+let d=new Date(date+'T12:00:00'); d.setMonth(d.getMonth()+n); return d.toISOString().slice(0,10);
+}
+function addYears(date, n){
+let d=new Date(date+'T12:00:00'); d.setFullYear(d.getFullYear()+n); return d.toISOString().slice(0,10);
+}
+function addWeeks(date, n){
+let d=new Date(date+'T12:00:00'); d.setDate(d.getDate()+7*n); return d.toISOString().slice(0,10);
+}
+function saveBill(){
+let v=+billValue.value;
+if(!billDesc.value||!v||!billDate.value)return alert('Preencha conta, valor e vencimento.');
+let recurring=billRecurring.value;
+let duration=document.getElementById('billDuration').value;
+let installments=+(document.getElementById('billInstallments').value||0);
+if(recurring!=='none' && duration==='fixed' && (!installments || installments<1))return alert('Informe a quantidade de parcelas.');
+let editId=+document.getElementById('billEditId').value;
+if(editId){
+  let b=data.bills.find(x=>x.id===editId);
+  if(b){
+    b.desc=billDesc.value; b.cat=billCat.value||'Outros'; b.value=v; b.date=billDate.value;
+    b.recurring=recurring; b.duration=duration; b.installments=installments;
+  }
+}else{
+  // Create the first bill
+  let count=recurring==='none'?1:(duration==='fixed'?installments:1);
+  let created=[];
+  for(let i=0;i<count;i++){
+    let date=billDate.value;
+    if(recurring==='weekly') date=addWeeks(billDate.value,i);
+    if(recurring==='monthly') date=addMonths(billDate.value,i);
+    if(recurring==='yearly') date=addYears(billDate.value,i);
+    created.push({id:Date.now()+i,desc:billDesc.value+(count>1?' - Parcela '+(i+1)+'/'+count:''),cat:billCat.value||'Outros',value:v,date,recurring,duration,installments:count,paid:false,seriesId:Date.now()});
+  }
+  data.bills.push(...created);
+}
+save();
+document.getElementById('billModal').classList.remove('show');
+document.getElementById('billEditId').value='';
+document.getElementById('billModalTitle').textContent='Nova conta';
+['billDesc','billCat','billValue','billInstallments'].forEach(id=>document.getElementById(id).value='');
+billRecurring.value='none'; billDuration.value='fixed'; updateRecurrenceFields();
+render()
+}
+function editBill(id){
+let b=data.bills.find(x=>x.id===id);
+if(!b)return;
+document.getElementById('billEditId').value=b.id;
+document.getElementById('billDesc').value=b.desc;
+document.getElementById('billCat').value=b.cat;
+document.getElementById('billValue').value=b.value;
+document.getElementById('billDate').value=b.date;
+document.getElementById('billRecurring').value=b.recurring||'none';
+document.getElementById('billDuration').value=b.duration||'fixed';
+document.getElementById('billInstallments').value=b.installments||'';
+updateRecurrenceFields();
+document.getElementById('billModalTitle').textContent='Editar conta';
+document.getElementById('billModal').classList.add('show');
+}
+function delTx(id){if(confirm('Apagar este lançamento?')){data.tx=data.tx.filter(x=>x.id!==id);save();render()}}
+function toggleBill(id){let b=data.bills.find(x=>x.id===id);if(b){b.paid=!b.paid;if(b.paid){data.tx.push({id:Date.now(),type:'out',desc:b.desc,cat:b.cat,value:b.value,date:todayISO()})}save();render()}}
+function delBill(id){if(confirm('Apagar esta conta?')){data.bills=data.bills.filter(x=>x.id!==id);save();render()}}
+function monthMatch(d){let x=new Date(d+'T12:00:00');return x.getMonth()===new Date().getMonth()&&x.getFullYear()===new Date().getFullYear()}
+function isSameMonth(dateStr){
+let d=new Date(dateStr+'T12:00:00'), now=new Date();
+return d.getMonth()===now.getMonth() && d.getFullYear()===now.getFullYear();
+}
+function isThisWeek(dateStr){
+let d=new Date(dateStr+'T12:00:00'), now=new Date();
+let day=now.getDay(); // Sunday=0
+let monday=new Date(now); monday.setHours(0,0,0,0); monday.setDate(now.getDate()-(day===0?6:day-1));
+let sunday=new Date(monday); sunday.setDate(monday.getDate()+6); sunday.setHours(23,59,59,999);
+return d>=monday && d<=sunday;
+}
+function render(){
+let ins=data.tx.filter(x=>x.type==='in').reduce((a,x)=>a+x.value,0), outs=data.tx.filter(x=>x.type==='out').reduce((a,x)=>a+x.value,0);
+document.getElementById('saldo').textContent=money(ins-outs);
+let im=data.tx.filter(x=>x.type==='in'&&monthMatch(x.date)).reduce((a,x)=>a+x.value,0), om=data.tx.filter(x=>x.type==='out'&&monthMatch(x.date)).reduce((a,x)=>a+x.value,0);
+document.getElementById('entradasMes').textContent=money(im);document.getElementById('saidasMes').textContent=money(om);
+let pendingBills=data.bills.filter(x=>!x.paid);
+let pending=pendingBills.reduce((a,x)=>a+x.value,0);
+let pendingWeek=pendingBills.filter(x=>isThisWeek(x.date)).reduce((a,x)=>a+x.value,0);
+let pendingMonth=pendingBills.filter(x=>isSameMonth(x.date)).reduce((a,x)=>a+x.value,0);
+document.getElementById('pendentes').textContent=money(pending);
+document.getElementById('pendentesSemana').textContent=money(pendingWeek);
+document.getElementById('pendentesMes').textContent=money(pendingMonth);
+document.getElementById('dinheiroGuardado').textContent=money(data.savings||0);
+let [ws,we]=weekRange();
+document.getElementById('semanaLabel').textContent=`Pendente: ${dateShort(ws)} a ${dateShort(we)}`;
+let now=new Date();
+let monthName=now.toLocaleDateString('pt-PT',{month:'long',year:'numeric'});
+document.getElementById('mesLabel').textContent=`Pendente: ${monthName}`;
+document.getElementById('savedTotal').textContent=money(data.savings||0);
+let sm=data.savingEntries.filter(e=>isSameMonth(e.date)).reduce((a,e)=>a+e.value,0);
+document.getElementById('savedMonth').textContent=money(sm);
+document.getElementById('savingTable').innerHTML=data.savingEntries.length?[...data.savingEntries].sort((a,b)=>b.date.localeCompare(a.date)).map(e=>`<tr><td>${fmtDate(e.date)}</td><td>${esc(e.desc)}</td><td class="green">${money(e.value)}</td><td><button class="danger" onclick="delSavingEntry(${e.id})">Apagar</button></td></tr>`).join(''):'<tr><td colspan="4" class="empty">Nenhum valor separado ainda.</td></tr>';
+
+let bills=[...data.bills].filter(x=>!x.paid).sort((a,b)=>a.date.localeCompare(b.date)).slice(0,6);
+document.getElementById('proximas').innerHTML=bills.length?bills.map(b=>`<div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border)"><div><b>${esc(b.desc)}</b><div class="label">${fmtDate(b.date)} · ${esc(b.cat)}</div></div><b class="red">${money(b.value)}</b></div>`).join(''):'<div class="empty">Nenhuma conta pendente 🎉</div>';
+let tx=[...data.tx].sort((a,b)=>b.date.localeCompare(a.date)||b.id-a.id).slice(0,6);
+document.getElementById('ultimos').innerHTML=tx.length?tx.map(x=>`<div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border)"><div><b>${esc(x.desc)}</b><div class="label">${fmtDate(x.date)} · ${esc(x.cat)}</div></div><b class="${x.type==='in'?'green':'red'}">${x.type==='in'?'+':'-'}${money(x.value)}</b></div>`).join(''):'<div class="empty">Nenhum lançamento ainda.</div>';
+document.getElementById('txTable').innerHTML=data.tx.length?[...data.tx].sort((a,b)=>b.date.localeCompare(a.date)).map(x=>`<tr><td>${fmtDate(x.date)}</td><td>${esc(x.desc)}</td><td>${esc(x.cat)}</td><td><span class="pill ${x.type}">${x.type==='in'?'Entrada':'Saída'}</span></td><td>${money(x.value)}</td><td><button class="danger" onclick="delTx(${x.id})">Apagar</button></td></tr>`).join(''):'<tr><td colspan="6" class="empty">Nenhum lançamento.</td></tr>';
+document.getElementById('billTable').innerHTML=data.bills.length?[...data.bills].sort((a,b)=>a.date.localeCompare(b.date)).map(b=>`<tr><td>${fmtDate(b.date)}</td><td>${esc(b.desc)}</td><td>${esc(b.cat)}</td><td>${money(b.value)}</td><td><button class="pill ${b.paid?'paid':'pending'}" onclick="toggleBill(${b.id})">${b.paid?'Pago':'Marcar como pago'}</button></td><td><button class="secondary" onclick="editBill(${b.id})">Editar</button> <button class="danger" onclick="delBill(${b.id})">Apagar</button></td></tr>`).join(''):'<tr><td colspan="6" class="empty">Nenhuma conta cadastrada.</td></tr>';
+renderCalendar();
+}
+function renderCalendar(){
+let y=calDate.getFullYear(),m=calDate.getMonth();document.getElementById('monthTitle').textContent=calDate.toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
+let first=new Date(y,m,1).getDay(),start=(first+6)%7,days=new Date(y,m+1,0).getDate(),prev=new Date(y,m,0).getDate(),out='';
+['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'].forEach(d=>out+=`<div class="dow">${d}</div>`);
+for(let i=0;i<42;i++){let n=i-start+1, dateObj, num=n, cls='day';if(n<1){num=prev+n;cls+=' muted';dateObj=new Date(y,m-1,num)}else if(n>days){num=n-days;cls+=' muted';dateObj=new Date(y,m+1,num)}else dateObj=new Date(y,m,n);let ds=dateObj.toISOString().slice(0,10);let ev=data.bills.filter(b=>b.date===ds).map(b=>`<div class="event">${esc(b.desc)} ${money(b.value)}</div>`).join('');let txe=data.tx.filter(t=>t.date===ds).map(t=>`<div class="event income-event">${t.type==='in'?'+':'-'} ${esc(t.desc)}</div>`).join('');out+=`<div class="${cls}"><div class="daynum">${num}</div>${ev}${txe}</div>`}
+document.getElementById('calendar').innerHTML=out;
+}
+function changeMonth(n){calDate.setMonth(calDate.getMonth()+n);renderCalendar()}
+function exportData(){let blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='backup-financeiro.json';a.click();URL.revokeObjectURL(a.href)}
+function importData(e){let f=e.target.files[0];if(!f)return;let r=new FileReader();r.onload=()=>{try{let x=JSON.parse(r.result);if(!x.tx||!x.bills)throw 0;data=x;save();render();alert('Backup importado com sucesso.')}catch{alert('Arquivo inválido.')}};r.readAsText(f)}
+function clearData(){if(confirm('Isso apagará todos os lançamentos e contas deste navegador. Continuar?')){data={tx:[],bills:[],savings:0,savingEntries:[]};save();render()}}
+function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]))}
+render();
+</script>
+</body>
+</html>
