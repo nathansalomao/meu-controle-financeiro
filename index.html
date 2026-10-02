@@ -21,9 +21,10 @@ button{border:0;border-radius:10px;padding:10px 14px;cursor:pointer;font-weight:
 @media(max-width:850px){.grid{grid-template-columns:repeat(2,1fr)}.form{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:560px){header{padding:14px}.container{margin:15px auto}.grid{grid-template-columns:1fr 1fr}.value{font-size:21px}.form{grid-template-columns:1fr}.day{min-height:72px}.event{font-size:9px}}
 </style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
-<header><div class="head"><div class="brand">Meu <span>Controle Financeiro</span></div><div id="today"></div></div></header>
+<header><div class="head"><div class="brand">Meu <span>Controle Financeiro</span></div><div style="display:flex;align-items:center;gap:10px"><div id="today"></div><div id="authArea"></div></div></div></header>
 <div class="container">
 <div class="tabs">
 <button class="tab active" data-tab="dashboard">Dashboard</button>
@@ -76,11 +77,18 @@ button{border:0;border-radius:10px;padding:10px 14px;cursor:pointer;font-weight:
 <section id="config" style="display:none">
 <div class="card">
 <h2>Dados do sistema</h2>
-<p>Os dados ficam salvos neste navegador. Faça um backup regularmente para não perder seus lançamentos.</p>
+<p id="syncStatus">Conectando ao banco online...</p>
 <div style="display:flex;gap:10px;flex-wrap:wrap"><button class="primary" onclick="exportData()">Exportar backup</button><label class="secondary" style="padding:10px 14px;border-radius:10px;cursor:pointer">Importar backup<input type="file" id="importFile" accept=".json" hidden onchange="importData(event)"></label><button class="danger" onclick="clearData()">Apagar todos os dados</button></div>
-<p class="note">Moeda: Euro (€). Você pode alterar categorias e valores diretamente ao criar cada lançamento.</p>
+<p class="note">Os dados são sincronizados na nuvem quando você estiver conectado à sua conta. O backup continua disponível como segurança.</p>
 </div>
 </section>
+
+<div class="modal" id="authModal"><div class="modal-box"><div class="modal-head"><h2 id="authTitle">Entrar</h2><button class="ghost" onclick="closeModal('authModal')">✕</button></div>
+<div class="form">
+<div class="field full"><label>E-mail</label><input id="authEmail" type="email" autocomplete="email" placeholder="seu@email.com"></div>
+<div class="field full"><label>Senha</label><input id="authPassword" type="password" autocomplete="current-password" placeholder="Mínimo de 6 caracteres"></div>
+<div class="actions full"><button class="primary" onclick="submitAuth()" id="authSubmit">Entrar</button><button class="secondary" onclick="toggleAuthMode()" id="authToggle">Criar conta</button></div>
+</div><p class="note" id="authNote">Use sua conta para acessar os mesmos dados no computador e no celular.</p></div></div>
 </div>
 
 <div class="modal" id="savingEntryModal"><div class="modal-box"><div class="modal-head"><h2>Separar dinheiro</h2><button class="ghost" onclick="closeModal('savingEntryModal')">✕</button></div>
@@ -99,193 +107,72 @@ button{border:0;border-radius:10px;padding:10px 14px;cursor:pointer;font-weight:
 <div class="field" id="billInstallmentsField" style="display:none"><label>Quantidade de parcelas</label><input id="billInstallments" type="number" min="1" step="1" placeholder="Ex.: 12"></div><div class="actions"><button class="primary" onclick="saveBill()">Salvar</button></div></div></div></div>
 
 <script>
+const SUPABASE_URL='https://nevpviyrzhxzzpzmipgy.supabase.co';
+const SUPABASE_PUBLISHABLE_KEY='sb_publishable_XkzPjmF9r6mITWKxEQT0SQ_6_f5Wh8l';
+const supabaseClient=supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY);
 const KEY='financeiro_v1';
 let data=JSON.parse(localStorage.getItem(KEY)||'{"tx":[],"bills":[],"savings":0,"savingEntries":[]}');
 if(typeof data.savings!=='number') data.savings=0;
 if(!Array.isArray(data.savingEntries)) data.savingEntries=[];
 let calDate=new Date();
+let currentUser=null;
+let authMode='login';
+let syncing=false;
 const money=v=>new Intl.NumberFormat('pt-PT',{style:'currency',currency:'EUR'}).format(Number(v)||0);
-const fmtDate=s=>s?new Date(s+'T12:00:00').toLocaleDateString('pt-PT'):''; 
-const save=()=>localStorage.setItem(KEY,JSON.stringify(data));
+const fmtDate=s=>s?new Date(s+'T12:00:00').toLocaleDateString('pt-PT'):'';
+const saveLocal=()=>localStorage.setItem(KEY,JSON.stringify(data));
 const todayISO=()=>new Date().toISOString().slice(0,10);
 document.getElementById('today').textContent=new Date().toLocaleDateString('pt-PT',{day:'2-digit',month:'2-digit',year:'numeric'});
 
 document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));b.classList.add('active');document.querySelectorAll('section').forEach(s=>s.style.display='none');document.getElementById(b.dataset.tab).style.display='block';render();});
 
-function openSavingEntry(){
-document.getElementById('savingEntryValue').value='';
-document.getElementById('savingEntryDate').value=todayISO();
-document.getElementById('savingEntryDesc').value='';
-document.getElementById('savingEntryModal').classList.add('show');
-}
-function saveSavingEntry(){
-let v=+document.getElementById('savingEntryValue').value;
-let date=document.getElementById('savingEntryDate').value;
-let desc=document.getElementById('savingEntryDesc').value||'Dinheiro guardado';
-if(!v||v<=0||!date)return alert('Informe valor e data.');
-data.savings=(data.savings||0)+v;
-data.savingEntries.push({id:Date.now(),value:v,date,desc});
-save();
-document.getElementById('savingEntryModal').classList.remove('show');
-render();
-}
-function delSavingEntry(id){
-let e=data.savingEntries.find(x=>x.id===id);
-if(!e)return;
-if(confirm('Apagar este registro e devolver o valor ao saldo guardado?')){
-data.savings=Math.max(0,(data.savings||0)-e.value);
-data.savingEntries=data.savingEntries.filter(x=>x.id!==id);
-save();render();
-}
-}
-function weekRange(){
-let now=new Date(), day=now.getDay();
-let monday=new Date(now); monday.setHours(0,0,0,0); monday.setDate(now.getDate()-(day===0?6:day-1));
-let sunday=new Date(monday); sunday.setDate(monday.getDate()+6);
-return [monday,sunday];
-}
+function setSyncStatus(msg,ok=false){const el=document.getElementById('syncStatus');if(el)el.innerHTML=(ok?'✅ ':'')+esc(msg);}
+function updateAuthUI(){const a=document.getElementById('authArea');if(!a)return;if(currentUser){a.innerHTML=`<button class="secondary" onclick="signOut()">Sair</button>`;}else{a.innerHTML=`<button class="primary" onclick="openAuth('login')">Entrar / Criar conta</button>`;}}
+function openAuth(mode='login'){authMode=mode;document.getElementById('authTitle').textContent=mode==='login'?'Entrar':'Criar conta';document.getElementById('authSubmit').textContent=mode==='login'?'Entrar':'Criar conta';document.getElementById('authToggle').textContent=mode==='login'?'Criar conta':'Já tenho conta';document.getElementById('authNote').textContent=mode==='login'?'Use sua conta para acessar os mesmos dados no computador e no celular.':'Depois de criar a conta, confirme o e-mail se o Supabase pedir e depois entre.';document.getElementById('authModal').classList.add('show');}
+function toggleAuthMode(){openAuth(authMode==='login'?'signup':'login')}
+async function submitAuth(){const email=document.getElementById('authEmail').value.trim();const password=document.getElementById('authPassword').value;if(!email||!password)return alert('Informe e-mail e senha.');try{let res;if(authMode==='login')res=await supabaseClient.auth.signInWithPassword({email,password});else res=await supabaseClient.auth.signUp({email,password});if(res.error)throw res.error;if(authMode==='signup'&&!res.data.session){alert('Conta criada. Verifique seu e-mail para confirmar a conta e depois entre.');openAuth('login');return;}if(authMode==='signup')alert('Conta criada com sucesso!');document.getElementById('authModal').classList.remove('show');}catch(e){alert('Não foi possível entrar: '+e.message);}}
+async function signOut(){await supabaseClient.auth.signOut();currentUser=null;updateAuthUI();setSyncStatus('Você saiu da conta. Os dados deste navegador continuam disponíveis localmente.');render();}
+
+function openSavingEntry(){document.getElementById('savingEntryValue').value='';document.getElementById('savingEntryDate').value=todayISO();document.getElementById('savingEntryDesc').value='';document.getElementById('savingEntryModal').classList.add('show');}
+async function saveSavingEntry(){let v=+document.getElementById('savingEntryValue').value;let date=document.getElementById('savingEntryDate').value;let desc=document.getElementById('savingEntryDesc').value||'Dinheiro guardado';if(!v||v<=0||!date)return alert('Informe valor e data.');data.savings=(data.savings||0)+v;data.savingEntries.push({id:crypto.randomUUID(),value:v,date,desc});saveLocal();document.getElementById('savingEntryModal').classList.remove('show');render();await syncAll();}
+async function delSavingEntry(id){let e=data.savingEntries.find(x=>String(x.id)===String(id));if(!e)return;if(confirm('Apagar este registro e devolver o valor ao saldo guardado?')){data.savings=Math.max(0,(data.savings||0)-Number(e.value));data.savingEntries=data.savingEntries.filter(x=>String(x.id)!==String(id));saveLocal();render();await syncAll();}}
+function weekRange(){let now=new Date(),day=now.getDay();let monday=new Date(now);monday.setHours(0,0,0,0);monday.setDate(now.getDate()-(day===0?6:day-1));let sunday=new Date(monday);sunday.setDate(monday.getDate()+6);return [monday,sunday];}
 function dateShort(d){return d.toLocaleDateString('pt-PT',{day:'2-digit',month:'2-digit'});}
-function openSavings(){
-document.getElementById('savingsValue').value=data.savings||0;
-document.getElementById('savingsModal').classList.add('show');
-}
-function saveSavings(){
-let v=+document.getElementById('savingsValue').value;
-if(v<0 || isNaN(v)) return alert('Informe um valor válido.');
-data.savings=v;
-save();
-document.getElementById('savingsModal').classList.remove('show');
-render();
-}
+function openSavings(){document.getElementById('savingsValue').value=data.savings||0;document.getElementById('savingsModal').classList.add('show');}
+async function saveSavings(){let v=+document.getElementById('savingsValue').value;if(v<0||isNaN(v))return alert('Informe um valor válido.');data.savings=v;saveLocal();document.getElementById('savingsModal').classList.remove('show');render();await syncSavings();}
 function openTx(){document.getElementById('txDate').value=todayISO();document.getElementById('txModal').classList.add('show')}
 function openBill(){document.getElementById('billDate').value=todayISO();document.getElementById('billModal').classList.add('show')}
 function closeModal(id){document.getElementById(id).classList.remove('show')}
-function saveTx(){let v=+txValue.value;if(!txDesc.value||!v||!txDate.value)return alert('Preencha descrição, valor e data.');data.tx.push({id:Date.now(),type:txType.value,desc:txDesc.value,cat:txCat.value||'Outros',value:v,date:txDate.value});save();document.getElementById('txModal').classList.remove('show');['txDesc','txCat','txValue'].forEach(id=>document.getElementById(id).value='');render()}
-function updateRecurrenceFields(){
-let recurring=document.getElementById('billRecurring').value;
-let show=recurring!=='none';
-document.getElementById('billDurationField').style.display=show?'flex':'none';
-let duration=document.getElementById('billDuration').value;
-document.getElementById('billInstallmentsField').style.display=(show&&duration==='fixed')?'flex':'none';
-}
-function addMonths(date, n){
-let d=new Date(date+'T12:00:00'); d.setMonth(d.getMonth()+n); return d.toISOString().slice(0,10);
-}
-function addYears(date, n){
-let d=new Date(date+'T12:00:00'); d.setFullYear(d.getFullYear()+n); return d.toISOString().slice(0,10);
-}
-function addWeeks(date, n){
-let d=new Date(date+'T12:00:00'); d.setDate(d.getDate()+7*n); return d.toISOString().slice(0,10);
-}
-function saveBill(){
-let v=+billValue.value;
-if(!billDesc.value||!v||!billDate.value)return alert('Preencha conta, valor e vencimento.');
-let recurring=billRecurring.value;
-let duration=document.getElementById('billDuration').value;
-let installments=+(document.getElementById('billInstallments').value||0);
-if(recurring!=='none' && duration==='fixed' && (!installments || installments<1))return alert('Informe a quantidade de parcelas.');
-let editId=+document.getElementById('billEditId').value;
-if(editId){
-  let b=data.bills.find(x=>x.id===editId);
-  if(b){
-    b.desc=billDesc.value; b.cat=billCat.value||'Outros'; b.value=v; b.date=billDate.value;
-    b.recurring=recurring; b.duration=duration; b.installments=installments;
-  }
-}else{
-  // Create the first bill
-  let count=recurring==='none'?1:(duration==='fixed'?installments:1);
-  let created=[];
-  for(let i=0;i<count;i++){
-    let date=billDate.value;
-    if(recurring==='weekly') date=addWeeks(billDate.value,i);
-    if(recurring==='monthly') date=addMonths(billDate.value,i);
-    if(recurring==='yearly') date=addYears(billDate.value,i);
-    created.push({id:Date.now()+i,desc:billDesc.value+(count>1?' - Parcela '+(i+1)+'/'+count:''),cat:billCat.value||'Outros',value:v,date,recurring,duration,installments:count,paid:false,seriesId:Date.now()});
-  }
-  data.bills.push(...created);
-}
-save();
-document.getElementById('billModal').classList.remove('show');
-document.getElementById('billEditId').value='';
-document.getElementById('billModalTitle').textContent='Nova conta';
-['billDesc','billCat','billValue','billInstallments'].forEach(id=>document.getElementById(id).value='');
-billRecurring.value='none'; billDuration.value='fixed'; updateRecurrenceFields();
-render()
-}
-function editBill(id){
-let b=data.bills.find(x=>x.id===id);
-if(!b)return;
-document.getElementById('billEditId').value=b.id;
-document.getElementById('billDesc').value=b.desc;
-document.getElementById('billCat').value=b.cat;
-document.getElementById('billValue').value=b.value;
-document.getElementById('billDate').value=b.date;
-document.getElementById('billRecurring').value=b.recurring||'none';
-document.getElementById('billDuration').value=b.duration||'fixed';
-document.getElementById('billInstallments').value=b.installments||'';
-updateRecurrenceFields();
-document.getElementById('billModalTitle').textContent='Editar conta';
-document.getElementById('billModal').classList.add('show');
-}
-function delTx(id){if(confirm('Apagar este lançamento?')){data.tx=data.tx.filter(x=>x.id!==id);save();render()}}
-function toggleBill(id){let b=data.bills.find(x=>x.id===id);if(b){b.paid=!b.paid;if(b.paid){data.tx.push({id:Date.now(),type:'out',desc:b.desc,cat:b.cat,value:b.value,date:todayISO()})}save();render()}}
-function delBill(id){if(confirm('Apagar esta conta?')){data.bills=data.bills.filter(x=>x.id!==id);save();render()}}
+async function saveTx(){let v=+txValue.value;if(!txDesc.value||!v||!txDate.value)return alert('Preencha descrição, valor e data.');data.tx.push({id:crypto.randomUUID(),type:txType.value,desc:txDesc.value,cat:txCat.value||'Outros',value:v,date:txDate.value});saveLocal();document.getElementById('txModal').classList.remove('show');['txDesc','txCat','txValue'].forEach(id=>document.getElementById(id).value='');render();await syncAll()}
+function updateRecurrenceFields(){let recurring=document.getElementById('billRecurring').value;let show=recurring!=='none';document.getElementById('billDurationField').style.display=show?'flex':'none';let duration=document.getElementById('billDuration').value;document.getElementById('billInstallmentsField').style.display=(show&&duration==='fixed')?'flex':'none';}
+function addMonths(date,n){let d=new Date(date+'T12:00:00');d.setMonth(d.getMonth()+n);return d.toISOString().slice(0,10)}
+function addYears(date,n){let d=new Date(date+'T12:00:00');d.setFullYear(d.getFullYear()+n);return d.toISOString().slice(0,10)}
+function addWeeks(date,n){let d=new Date(date+'T12:00:00');d.setDate(d.getDate()+7*n);return d.toISOString().slice(0,10)}
+async function saveBill(){let v=+billValue.value;if(!billDesc.value||!v||!billDate.value)return alert('Preencha conta, valor e vencimento.');let recurring=billRecurring.value;let duration=document.getElementById('billDuration').value;let installments=+(document.getElementById('billInstallments').value||0);if(recurring!=='none'&&duration==='fixed'&&(!installments||installments<1))return alert('Informe a quantidade de parcelas.');let editId=document.getElementById('billEditId').value;if(editId){let b=data.bills.find(x=>String(x.id)===String(editId));if(b){b.desc=billDesc.value;b.cat=billCat.value||'Outros';b.value=v;b.date=billDate.value;b.recurring=recurring;b.duration=duration;b.installments=installments;}}else{let count=recurring==='none'?1:(duration==='fixed'?installments:1);let seriesId=crypto.randomUUID();let created=[];for(let i=0;i<count;i++){let date=billDate.value;if(recurring==='weekly')date=addWeeks(billDate.value,i);if(recurring==='monthly')date=addMonths(billDate.value,i);if(recurring==='yearly')date=addYears(billDate.value,i);created.push({id:crypto.randomUUID(),desc:billDesc.value+(count>1?' - Parcela '+(i+1)+'/'+count:''),cat:billCat.value||'Outros',value:v,date,recurring,duration,installments:count,paid:false,seriesId});}data.bills.push(...created);}saveLocal();document.getElementById('billModal').classList.remove('show');document.getElementById('billEditId').value='';document.getElementById('billModalTitle').textContent='Nova conta';['billDesc','billCat','billValue','billInstallments'].forEach(id=>document.getElementById(id).value='');billRecurring.value='none';billDuration.value='fixed';updateRecurrenceFields();render();await syncAll()}
+function editBill(id){let b=data.bills.find(x=>String(x.id)===String(id));if(!b)return;document.getElementById('billEditId').value=b.id;document.getElementById('billDesc').value=b.desc;document.getElementById('billCat').value=b.cat;document.getElementById('billValue').value=b.value;document.getElementById('billDate').value=b.date;document.getElementById('billRecurring').value=b.recurring||'none';document.getElementById('billDuration').value=b.duration||'fixed';document.getElementById('billInstallments').value=b.installments||'';updateRecurrenceFields();document.getElementById('billModalTitle').textContent='Editar conta';document.getElementById('billModal').classList.add('show')}
+async function delTx(id){if(confirm('Apagar este lançamento?')){data.tx=data.tx.filter(x=>String(x.id)!==String(id));saveLocal();render();await syncAll()}}
+async function toggleBill(id){let b=data.bills.find(x=>String(x.id)===String(id));if(b){b.paid=!b.paid;saveLocal();render();await syncAll()}}
+async function delBill(id){if(confirm('Apagar esta conta?')){data.bills=data.bills.filter(x=>String(x.id)!==String(id));saveLocal();render();await syncAll()}}
 function monthMatch(d){let x=new Date(d+'T12:00:00');return x.getMonth()===new Date().getMonth()&&x.getFullYear()===new Date().getFullYear()}
-function isSameMonth(dateStr){
-let d=new Date(dateStr+'T12:00:00'), now=new Date();
-return d.getMonth()===now.getMonth() && d.getFullYear()===now.getFullYear();
-}
-function isThisWeek(dateStr){
-let d=new Date(dateStr+'T12:00:00'), now=new Date();
-let day=now.getDay(); // Sunday=0
-let monday=new Date(now); monday.setHours(0,0,0,0); monday.setDate(now.getDate()-(day===0?6:day-1));
-let sunday=new Date(monday); sunday.setDate(monday.getDate()+6); sunday.setHours(23,59,59,999);
-return d>=monday && d<=sunday;
-}
-function render(){
-let ins=data.tx.filter(x=>x.type==='in').reduce((a,x)=>a+x.value,0), outs=data.tx.filter(x=>x.type==='out').reduce((a,x)=>a+x.value,0);
-document.getElementById('saldo').textContent=money(ins-outs);
-let im=data.tx.filter(x=>x.type==='in'&&monthMatch(x.date)).reduce((a,x)=>a+x.value,0), om=data.tx.filter(x=>x.type==='out'&&monthMatch(x.date)).reduce((a,x)=>a+x.value,0);
-document.getElementById('entradasMes').textContent=money(im);document.getElementById('saidasMes').textContent=money(om);
-let pendingBills=data.bills.filter(x=>!x.paid);
-let pending=pendingBills.reduce((a,x)=>a+x.value,0);
-let pendingWeek=pendingBills.filter(x=>isThisWeek(x.date)).reduce((a,x)=>a+x.value,0);
-let pendingMonth=pendingBills.filter(x=>isSameMonth(x.date)).reduce((a,x)=>a+x.value,0);
-document.getElementById('pendentes').textContent=money(pending);
-document.getElementById('pendentesSemana').textContent=money(pendingWeek);
-document.getElementById('pendentesMes').textContent=money(pendingMonth);
-document.getElementById('dinheiroGuardado').textContent=money(data.savings||0);
-let [ws,we]=weekRange();
-document.getElementById('semanaLabel').textContent=`Pendente: ${dateShort(ws)} a ${dateShort(we)}`;
-let now=new Date();
-let monthName=now.toLocaleDateString('pt-PT',{month:'long',year:'numeric'});
-document.getElementById('mesLabel').textContent=`Pendente: ${monthName}`;
-document.getElementById('savedTotal').textContent=money(data.savings||0);
-let sm=data.savingEntries.filter(e=>isSameMonth(e.date)).reduce((a,e)=>a+e.value,0);
-document.getElementById('savedMonth').textContent=money(sm);
-document.getElementById('savingTable').innerHTML=data.savingEntries.length?[...data.savingEntries].sort((a,b)=>b.date.localeCompare(a.date)).map(e=>`<tr><td>${fmtDate(e.date)}</td><td>${esc(e.desc)}</td><td class="green">${money(e.value)}</td><td><button class="danger" onclick="delSavingEntry(${e.id})">Apagar</button></td></tr>`).join(''):'<tr><td colspan="4" class="empty">Nenhum valor separado ainda.</td></tr>';
+function isSameMonth(dateStr){let d=new Date(dateStr+'T12:00:00'),now=new Date();return d.getMonth()===now.getMonth()&&d.getFullYear()===now.getFullYear()}
+function isThisWeek(dateStr){let d=new Date(dateStr+'T12:00:00'),now=new Date();let day=now.getDay();let monday=new Date(now);monday.setHours(0,0,0,0);monday.setDate(now.getDate()-(day===0?6:day-1));let sunday=new Date(monday);sunday.setDate(monday.getDate()+6);sunday.setHours(23,59,59,999);return d>=monday&&d<=sunday}
 
-let bills=[...data.bills].filter(x=>!x.paid).sort((a,b)=>a.date.localeCompare(b.date)).slice(0,6);
-document.getElementById('proximas').innerHTML=bills.length?bills.map(b=>`<div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border)"><div><b>${esc(b.desc)}</b><div class="label">${fmtDate(b.date)} · ${esc(b.cat)}</div></div><b class="red">${money(b.value)}</b></div>`).join(''):'<div class="empty">Nenhuma conta pendente 🎉</div>';
-let tx=[...data.tx].sort((a,b)=>b.date.localeCompare(a.date)||b.id-a.id).slice(0,6);
-document.getElementById('ultimos').innerHTML=tx.length?tx.map(x=>`<div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border)"><div><b>${esc(x.desc)}</b><div class="label">${fmtDate(x.date)} · ${esc(x.cat)}</div></div><b class="${x.type==='in'?'green':'red'}">${x.type==='in'?'+':'-'}${money(x.value)}</b></div>`).join(''):'<div class="empty">Nenhum lançamento ainda.</div>';
-document.getElementById('txTable').innerHTML=data.tx.length?[...data.tx].sort((a,b)=>b.date.localeCompare(a.date)).map(x=>`<tr><td>${fmtDate(x.date)}</td><td>${esc(x.desc)}</td><td>${esc(x.cat)}</td><td><span class="pill ${x.type}">${x.type==='in'?'Entrada':'Saída'}</span></td><td>${money(x.value)}</td><td><button class="danger" onclick="delTx(${x.id})">Apagar</button></td></tr>`).join(''):'<tr><td colspan="6" class="empty">Nenhum lançamento.</td></tr>';
-document.getElementById('billTable').innerHTML=data.bills.length?[...data.bills].sort((a,b)=>a.date.localeCompare(b.date)).map(b=>`<tr><td>${fmtDate(b.date)}</td><td>${esc(b.desc)}</td><td>${esc(b.cat)}</td><td>${money(b.value)}</td><td><button class="pill ${b.paid?'paid':'pending'}" onclick="toggleBill(${b.id})">${b.paid?'Pago':'Marcar como pago'}</button></td><td><button class="secondary" onclick="editBill(${b.id})">Editar</button> <button class="danger" onclick="delBill(${b.id})">Apagar</button></td></tr>`).join(''):'<tr><td colspan="6" class="empty">Nenhuma conta cadastrada.</td></tr>';
-renderCalendar();
-}
-function renderCalendar(){
-let y=calDate.getFullYear(),m=calDate.getMonth();document.getElementById('monthTitle').textContent=calDate.toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
-let first=new Date(y,m,1).getDay(),start=(first+6)%7,days=new Date(y,m+1,0).getDate(),prev=new Date(y,m,0).getDate(),out='';
-['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'].forEach(d=>out+=`<div class="dow">${d}</div>`);
-for(let i=0;i<42;i++){let n=i-start+1, dateObj, num=n, cls='day';if(n<1){num=prev+n;cls+=' muted';dateObj=new Date(y,m-1,num)}else if(n>days){num=n-days;cls+=' muted';dateObj=new Date(y,m+1,num)}else dateObj=new Date(y,m,n);let ds=dateObj.toISOString().slice(0,10);let ev=data.bills.filter(b=>b.date===ds).map(b=>`<div class="event">${esc(b.desc)} ${money(b.value)}</div>`).join('');let txe=data.tx.filter(t=>t.date===ds).map(t=>`<div class="event income-event">${t.type==='in'?'+':'-'} ${esc(t.desc)}</div>`).join('');out+=`<div class="${cls}"><div class="daynum">${num}</div>${ev}${txe}</div>`}
-document.getElementById('calendar').innerHTML=out;
-}
+function render(){let ins=data.tx.filter(x=>x.type==='in').reduce((a,x)=>a+Number(x.value),0),outs=data.tx.filter(x=>x.type==='out').reduce((a,x)=>a+Number(x.value),0);document.getElementById('saldo').textContent=money(ins-outs);let im=data.tx.filter(x=>x.type==='in'&&monthMatch(x.date)).reduce((a,x)=>a+Number(x.value),0),om=data.tx.filter(x=>x.type==='out'&&monthMatch(x.date)).reduce((a,x)=>a+Number(x.value),0);document.getElementById('entradasMes').textContent=money(im);document.getElementById('saidasMes').textContent=money(om);let pendingBills=data.bills.filter(x=>!x.paid);let pending=pendingBills.reduce((a,x)=>a+Number(x.value),0);let pendingWeek=pendingBills.filter(x=>isThisWeek(x.date)).reduce((a,x)=>a+Number(x.value),0);let pendingMonth=pendingBills.filter(x=>isSameMonth(x.date)).reduce((a,x)=>a+Number(x.value),0);document.getElementById('pendentes').textContent=money(pending);document.getElementById('pendentesSemana').textContent=money(pendingWeek);document.getElementById('pendentesMes').textContent=money(pendingMonth);document.getElementById('dinheiroGuardado').textContent=money(data.savings||0);let [ws,we]=weekRange();document.getElementById('semanaLabel').textContent=`Pendente: ${dateShort(ws)} a ${dateShort(we)}`;let now=new Date();let monthName=now.toLocaleDateString('pt-PT',{month:'long',year:'numeric'});document.getElementById('mesLabel').textContent=`Pendente: ${monthName}`;document.getElementById('savedTotal').textContent=money(data.savings||0);let sm=data.savingEntries.filter(e=>isSameMonth(e.date)).reduce((a,e)=>a+Number(e.value),0);document.getElementById('savedMonth').textContent=money(sm);document.getElementById('savingTable').innerHTML=data.savingEntries.length?[...data.savingEntries].sort((a,b)=>b.date.localeCompare(a.date)).map(e=>`<tr><td>${fmtDate(e.date)}</td><td>${esc(e.desc)}</td><td class="green">${money(e.value)}</td><td><button class="danger" onclick="delSavingEntry('${e.id}')">Apagar</button></td></tr>`).join(''):'<tr><td colspan="4" class="empty">Nenhum valor separado ainda.</td></tr>';let bills=[...data.bills].filter(x=>!x.paid).sort((a,b)=>a.date.localeCompare(b.date)).slice(0,6);document.getElementById('proximas').innerHTML=bills.length?bills.map(b=>`<div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border)"><div><b>${esc(b.desc)}</b><div class="label">${fmtDate(b.date)} · ${esc(b.cat)}</div></div><b class="red">${money(b.value)}</b></div>`).join(''):'<div class="empty">Nenhuma conta pendente 🎉</div>';let tx=[...data.tx].sort((a,b)=>b.date.localeCompare(a.date)||String(b.id).localeCompare(String(a.id))).slice(0,6);document.getElementById('ultimos').innerHTML=tx.length?tx.map(x=>`<div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border)"><div><b>${esc(x.desc)}</b><div class="label">${fmtDate(x.date)} · ${esc(x.cat)}</div></div><b class="${x.type==='in'?'green':'red'}">${x.type==='in'?'+':'-'}${money(x.value)}</b></div>`).join(''):'<div class="empty">Nenhum lançamento ainda.</div>';document.getElementById('txTable').innerHTML=data.tx.length?[...data.tx].sort((a,b)=>b.date.localeCompare(a.date)).map(x=>`<tr><td>${fmtDate(x.date)}</td><td>${esc(x.desc)}</td><td>${esc(x.cat)}</td><td><span class="pill ${x.type}">${x.type==='in'?'Entrada':'Saída'}</span></td><td>${money(x.value)}</td><td><button class="danger" onclick="delTx('${x.id}')">Apagar</button></td></tr>`).join(''):'<tr><td colspan="6" class="empty">Nenhum lançamento.</td></tr>';document.getElementById('billTable').innerHTML=data.bills.length?[...data.bills].sort((a,b)=>a.date.localeCompare(b.date)).map(b=>`<tr><td>${fmtDate(b.date)}</td><td>${esc(b.desc)}</td><td>${esc(b.cat)}</td><td>${money(b.value)}</td><td><button class="pill ${b.paid?'paid':'pending'}" onclick="toggleBill('${b.id}')">${b.paid?'Pago':'Marcar como pago'}</button></td><td><button class="secondary" onclick="editBill('${b.id}')">Editar</button> <button class="danger" onclick="delBill('${b.id}')">Apagar</button></td></tr>`).join(''):'<tr><td colspan="6" class="empty">Nenhuma conta cadastrada.</td></tr>';renderCalendar();}
+function renderCalendar(){let y=calDate.getFullYear(),m=calDate.getMonth();document.getElementById('monthTitle').textContent=calDate.toLocaleDateString('pt-BR',{month:'long',year:'numeric'});let first=new Date(y,m,1).getDay(),start=(first+6)%7,days=new Date(y,m+1,0).getDate(),prev=new Date(y,m,0).getDate(),out='';['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'].forEach(d=>out+=`<div class="dow">${d}</div>`);for(let i=0;i<42;i++){let n=i-start+1,dateObj,num=n,cls='day';if(n<1){num=prev+n;cls+=' muted';dateObj=new Date(y,m-1,num)}else if(n>days){num=n-days;cls+=' muted';dateObj=new Date(y,m+1,num)}else dateObj=new Date(y,m,n);let ds=dateObj.toISOString().slice(0,10);let ev=data.bills.filter(b=>b.date===ds).map(b=>`<div class="event">${esc(b.desc)} ${money(b.value)}</div>`).join('');let txe=data.tx.filter(t=>t.date===ds).map(t=>`<div class="event income-event">${t.type==='in'?'+':'-'} ${esc(t.desc)}</div>`).join('');out+=`<div class="${cls}"><div class="daynum">${num}</div>${ev}${txe}</div>`}document.getElementById('calendar').innerHTML=out}
 function changeMonth(n){calDate.setMonth(calDate.getMonth()+n);renderCalendar()}
 function exportData(){let blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='backup-financeiro.json';a.click();URL.revokeObjectURL(a.href)}
-function importData(e){let f=e.target.files[0];if(!f)return;let r=new FileReader();r.onload=()=>{try{let x=JSON.parse(r.result);if(!x.tx||!x.bills)throw 0;data=x;save();render();alert('Backup importado com sucesso.')}catch{alert('Arquivo inválido.')}};r.readAsText(f)}
-function clearData(){if(confirm('Isso apagará todos os lançamentos e contas deste navegador. Continuar?')){data={tx:[],bills:[],savings:0,savingEntries:[]};save();render()}}
+function importData(e){let f=e.target.files[0];if(!f)return;let r=new FileReader();r.onload=async()=>{try{let x=JSON.parse(r.result);if(!x.tx||!x.bills)throw 0;data=x;saveLocal();render();if(currentUser)await syncAll();alert('Backup importado com sucesso.')}catch{alert('Arquivo inválido.')}};r.readAsText(f)}
+async function clearData(){if(confirm('Isso apagará todos os lançamentos e contas deste navegador. Continuar?')){data={tx:[],bills:[],savings:0,savingEntries:[]};saveLocal();render();if(currentUser)await syncAll()}}
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]))}
-render();
+
+function normalizeCloud(){data.tx=data.tx.map(x=>({id:x.id,type:x.type,desc:x.desc,cat:x.cat||'Outros',value:Number(x.value),date:x.date}));data.bills=data.bills.map(x=>({id:x.id,desc:x.desc,cat:x.cat||'Outros',value:Number(x.value),date:x.date,recurring:x.recurring||'none',duration:x.duration||'fixed',installments:x.installments||0,paid:!!x.paid,seriesId:x.seriesId||null}));data.savingEntries=data.savingEntries.map(x=>({id:x.id,value:Number(x.value),date:x.date,desc:x.desc||'Dinheiro guardado'}));}
+async function loadCloud(){if(!currentUser)return;setSyncStatus('Carregando seus dados da nuvem...');const uid=currentUser.id;const [txr,br,sr,ser]=await Promise.all([supabaseClient.from('transactions').select('*').eq('user_id',uid),supabaseClient.from('bills').select('*').eq('user_id',uid),supabaseClient.from('savings').select('*').eq('user_id',uid).maybeSingle(),supabaseClient.from('saving_entries').select('*').eq('user_id',uid)]);for(const r of [txr,br,sr,ser])if(r.error)throw r.error;const cloudHas=(txr.data?.length||0)+(br.data?.length||0)+(sr.data?1:0)+(ser.data?.length||0)>0;const localHas=data.tx.length+data.bills.length+data.savingEntries.length+(data.savings?1:0)>0;if(!cloudHas&&localHas){await syncAll(true);return;}data={tx:(txr.data||[]).map(x=>({id:x.id,type:x.type,desc:x.description,cat:x.category||'Outros',value:Number(x.amount),date:x.date})),bills:(br.data||[]).map(x=>({id:x.id,desc:x.description,cat:x.category||'Outros',value:Number(x.amount),date:x.due_date,recurring:x.recurring||'none',duration:x.duration||'fixed',installments:x.installments||0,paid:!!x.paid,seriesId:x.series_id||null})),savings:sr.data?Number(sr.data.total):0,savingEntries:(ser.data||[]).map(x=>({id:x.id,value:Number(x.amount),date:x.date,desc:x.description||'Dinheiro guardado'}))};saveLocal();render();setSyncStatus('Sincronizado com a nuvem.',true);}
+async function syncAll(force=false){if(!currentUser||syncing)return;syncing=true;try{setSyncStatus('Sincronizando...');const uid=currentUser.id;const txRows=data.tx.map(x=>({id:x.id,user_id:uid,type:x.type,description:x.desc,category:x.cat||'Outros',amount:Number(x.value),date:x.date}));const billRows=data.bills.map(x=>({id:x.id,user_id:uid,description:x.desc,category:x.cat||'Outros',amount:Number(x.value),due_date:x.date,paid:!!x.paid,recurring:x.recurring||'none',duration:x.duration||'fixed',installments:x.installments||0,series_id:x.seriesId||null}));const seRows=data.savingEntries.map(x=>({id:x.id,user_id:uid,amount:Number(x.value),description:x.desc||'Dinheiro guardado',date:x.date}));const tables=[['transactions',txRows],['bills',billRows],['saving_entries',seRows]];for(const [table,rows] of tables){const {data:existing,error:e1}=await supabaseClient.from(table).select('id').eq('user_id',uid);if(e1)throw e1;const ids=new Set(rows.map(r=>String(r.id)));const obsolete=(existing||[]).filter(r=>!ids.has(String(r.id))).map(r=>r.id);if(obsolete.length){const {error:e2}=await supabaseClient.from(table).delete().in('id',obsolete).eq('user_id',uid);if(e2)throw e2;}if(rows.length){const {error:e3}=await supabaseClient.from(table).upsert(rows,{onConflict:'id'});if(e3)throw e3;}}await syncSavings();setSyncStatus('Sincronizado com a nuvem.',true);}catch(e){console.error(e);setSyncStatus('Erro ao sincronizar: '+e.message);}finally{syncing=false}}
+async function syncSavings(){if(!currentUser)return;const uid=currentUser.id;const {data:row,error:e1}=await supabaseClient.from('savings').select('id').eq('user_id',uid).maybeSingle();if(e1)throw e1;if(row){const {error}=await supabaseClient.from('savings').update({total:Number(data.savings||0),updated_at:new Date().toISOString()}).eq('id',row.id).eq('user_id',uid);if(error)throw error;}else{const {error}=await supabaseClient.from('savings').insert({user_id:uid,total:Number(data.savings||0)});if(error)throw error;}}
+
+async function initAuth(){updateAuthUI();const {data:sessionData}=await supabaseClient.auth.getSession();currentUser=sessionData.session?.user||null;updateAuthUI();if(currentUser){try{await loadCloud()}catch(e){console.error(e);setSyncStatus('Erro ao carregar a nuvem: '+e.message)}}else setSyncStatus('Modo local. Entre na sua conta para sincronizar entre dispositivos.');supabaseClient.auth.onAuthStateChange(async(_event,session)=>{currentUser=session?.user||null;updateAuthUI();if(currentUser){try{await loadCloud()}catch(e){console.error(e);setSyncStatus('Erro ao carregar a nuvem: '+e.message)}}else{setSyncStatus('Modo local. Entre na sua conta para sincronizar entre dispositivos.');render();}})}
+
+render();initAuth();
 </script>
 </body>
 </html>
